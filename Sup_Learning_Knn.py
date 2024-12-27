@@ -21,18 +21,23 @@ categorical_cols = data.select_dtypes(include=['object']).columns
 
 
 # Introduzir valores ausentes artificiais (10% ou 20%)
-percentagem = input("Introduza a percentagem de valores omissos (10% ou 20%): ")
-percentagem = re.sub(r"[^\w\s]", "", percentagem)  # remove a '%'
-while percentagem == 10 or percentagem == 20:
-    percentagem = input("Introduza a percentagem de valores omissos (10% ou 20%): ")
-    percentagem = re.sub(r"[^\w\s]", "", percentagem)
+# Solicitar a percentagem de valores omissos
+while True:
+    percentagem = input("Introduza a percentagem de valores omissos (10% ou 20%): ").strip()
+    percentagem = re.sub(r"[^\w\s]", "", percentagem)  # Remove caracteres não numéricos
+    if percentagem in {"10", "20"}:  # Verifica se a entrada é válida
+        break
+    else:
+        print("Entrada inválida! Por favor, introduza '10%' ou '20%'.")
+
+# Criar cópia do dataset e introduzir valores omissos
 data_with_missing_10 = data.copy()
+frac = 0.1 if percentagem == "10" else 0.2
+
 for col in data_with_missing_10.columns:
-    if data_with_missing_10[col].dtype != 'object':
-        if percentagem == "10" or percentagem == "10%":
-            data_with_missing_10.loc[data_with_missing_10.sample(frac=0.1).index, col] = np.nan
-        else:
-            data_with_missing_10.loc[data_with_missing_10.sample(frac=0.2).index, col] = np.nan
+    if data_with_missing_10[col].dtype != 'object':  # Apenas colunas numéricas
+        data_with_missing_10.loc[data_with_missing_10.sample(frac=frac).index, col] = np.nan
+
 
 # Tratamento de valores omissos
 while True:
