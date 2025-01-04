@@ -21,7 +21,7 @@ numeric_cols = data.select_dtypes(include=['float64', 'int64']).columns
 categorical_cols = data.select_dtypes(include=['object']).columns
 
 # Remoção de Duplicados
-
+data = data.drop_duplicates()
 
 # Introduzir valores ausentes artificiais (10% ou 20%)
 # Solicitar a percentagem de valores omissos
