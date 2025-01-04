@@ -103,11 +103,10 @@ feature_importance_knn = pd.Series(perm_importance_knn.importances_mean, index=X
 feature_importance_knn = feature_importance_knn.abs().sort_values(ascending=True)
 
 # Plotando a importância das características
-plt.figure(figsize=(10, 8))
+plt.figure(figsize=(12, 8))
 plt.barh(feature_importance_knn.index, feature_importance_knn.values, color='lightcoral')
-plt.title("Importância das Características no k-NN (Permutation Importance)", fontsize=14)
-plt.xlabel("Impacto na Predição (Valor Absoluto)", fontsize=12)
-plt.ylabel("Características", fontsize=12)
-plt.grid(axis='x', linestyle='--', alpha=0.7)
+plt.title("Importância dos Atributos - k-NN", fontsize=16)
+plt.xlabel("Relevância na Previsão de Doença Cardíaca", fontsize=14)
+plt.ylabel("Atributos", fontsize=14)
 plt.tight_layout()
 plt.show()

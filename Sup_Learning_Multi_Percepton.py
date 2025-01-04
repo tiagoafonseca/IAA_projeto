@@ -105,12 +105,11 @@ feature_importance = feature_importance.abs().sort_values(ascending=True)
 
 
 # Visualizando a importância
-plt.figure(figsize=(10, 8))
-plt.barh(feature_importance.index, feature_importance.values, color='skyblue')
-plt.title("Importância das Características (Permutation Importance)", fontsize=14, )
-plt.xlabel("Relevância na Previsão de Doença Cardíaca", fontsize=12)
-plt.ylabel("Características", fontsize=12)
-plt.grid(axis='x', linestyle='--', alpha=0.7)
+plt.figure(figsize=(12, 8))
+plt.barh(feature_importance.index, feature_importance.values, color='darkkhaki')
+plt.title("Importância dos Atributos - Mul.Perceptron", fontsize=16, )
+plt.xlabel("Relevância na Previsão de Doença Cardíaca", fontsize=14)
+plt.ylabel("Atributos", fontsize=14)
 plt.tight_layout()
 plt.show()
 

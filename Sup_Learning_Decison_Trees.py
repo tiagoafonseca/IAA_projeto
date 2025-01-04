@@ -7,7 +7,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 import re
-import data_preparation
+# import data_preparation
 
 # Carregar os dados
 file_path = r'C:\Users\Tiago Afonseca\OneDrive - ISCTE-IUL\Documents\1º Year MEI\1º Semestre\IAA\projeto\CVD_cleaned_tester.csv'
@@ -18,7 +18,7 @@ numeric_cols = data.select_dtypes(include=['float64', 'int64']).columns
 categorical_cols = data.select_dtypes(include=['object']).columns
 
 # Remoção de Duplicados
-
+data = data.drop_duplicates()
 
 # Introduzir valores ausentes artificiais (10% ou 20%)
 # Solicitar a percentagem de valores omissos
@@ -77,7 +77,7 @@ y = data_encoded[target_col]
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
 # Modelo: Árvore de decisão
-clf = DecisionTreeClassifier(random_state=42, class_weight="balanced", max_depth=4)
+clf = DecisionTreeClassifier(random_state=42, class_weight="balanced", max_depth=6)
 clf.fit(X_train, y_train)
 
 # Avaliação
@@ -89,7 +89,25 @@ accuracy = accuracy_score(y_test, y_pred)
 plt.figure(figsize=(20, 10))
 plot_tree(clf, feature_names=X.columns, class_names=['No Disease', 'Disease'], filled=True, rounded=True)
 plt.title("Árvore de Decisão para Previsão de Doença Cardiovascular")
+plt.savefig("decision_tree.pdf", bbox_inches='tight')
 plt.show()
+
+# Atributos mais relevantes
+# Ordenar as importâncias e os atributos do maior para o menor
+importances = clf.feature_importances_
+importances = importances[importances > 0]
+sorted_indices = np.argsort(importances)[::-1]
+sorted_importances = importances[sorted_indices]
+sorted_features = X.columns[sorted_indices]
+plt.figure(figsize=(12, 8))
+plt.barh(sorted_features, sorted_importances, color='cadetblue')  # Usar barh para um gráfico horizontal
+plt.title("Importância dos Atributos - Decision Tree", fontsize=16)
+plt.xlabel("Relevância na Previsão de Doença Cardíaca", fontsize=14)
+plt.ylabel("Atributos", fontsize=14)
+plt.tight_layout()
+plt.gca().invert_yaxis()  # Inverte o eixo Y para o maior atributo aparecer no topo
+plt.show()
+
 
 # Resultados
 print("Relatório de Classificação:")
