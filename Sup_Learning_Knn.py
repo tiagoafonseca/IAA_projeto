@@ -1,13 +1,18 @@
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import (classification_report, accuracy_score, confusion_matrix,
+                             precision_score, recall_score, f1_score)
+from sklearn.decomposition import PCA
+import seaborn as sns
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 from sklearn.inspection import permutation_importance
 import matplotlib.pyplot as plt
 import re
+import data_preparation
+from imblearn.over_sampling import SMOTE
 
 # Carregar os dados
 file_path = r'C:\Users\Tiago Afonseca\OneDrive - ISCTE-IUL\Documents\1º Year MEI\1º Semestre\IAA\projeto\CVD_cleaned_tester.csv'
@@ -69,29 +74,97 @@ data_normalized[categorical_cols] = data_with_missing_10[categorical_cols]
 data_encoded = pd.get_dummies(data_normalized, columns=categorical_cols, drop_first=True)
 
 # Ajustando X e y
-target_col = [col for col in data_encoded.columns if 'Heart' in col][0]  # Detectando a coluna-alvo
+target_col = [col for col in data_encoded.columns if 'Heart_Disease' in col][0]  # Detectando a coluna-alvo
 X = data_encoded.drop(columns=[target_col])
 y = data_encoded[target_col]
 
+
+# -------------------- Redução de Dimensionalidade com PCA --------------------
+# Configurando o PCA para reduzir para N componentes principais
+n_atributos = 7
+pca = PCA(n_components=n_atributos)
+
+# Aplicando o PCA aos dados normalizados (X)
+X_pca = pca.fit_transform(data_encoded.drop(columns=[target_col]))
+
+# Criando um DataFrame com as N componentes principais
+X_pca_df = pd.DataFrame(X_pca, columns=[f"PCA{i+1}" for i in range(n_atributos)])
+X_pca_df['Heart_Disease'] = data_encoded[target_col]  # Adicionando a variável alvo
+
+data_preparation.creating_table(X_pca_df)  # Visualizar tabela reduzida
+
+# Exibir a explicação da variância acumulada
+explained_variance = np.cumsum(pca.explained_variance_ratio_)
+print(f"\nExplicação de variância acumulada para {n_atributos} componentes:", explained_variance[-1])
+
+# -------------------- Adicionando a Análise de Contribuições de cada Atributo(Loadings) --------------------
+# Obter os loadings do PCA
+loadings = pca.components_
+
+# Criar um DataFrame para relacionar os loadings às variáveis originais
+loading_matrix = pd.DataFrame(loadings, columns=X.columns, index=[f"PCA{i+1}" for i in range(n_atributos)])
+
+# Exibir a matriz de loadings completa
+print("\nMatriz de Loadings (Contribuições):")
+print(loading_matrix)
+
+# Visualizar as contribuições de variáveis para cada componente principal
+for i in range(n_atributos):  # Iterar sobre todas as PCAs
+    plt.figure(figsize=(11, 7))
+    loading_matrix.iloc[i].plot(kind='barh', color='mediumpurple', alpha=0.7)
+    plt.title(f"Contribuições das Variáveis para o {loading_matrix.index[i]}", fontsize=16)
+    plt.xlabel("Variáveis Originais", fontsize=14)
+    plt.ylabel("Contribuição", fontsize=14)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.gca().invert_yaxis()
+    plt.show()
+
+# Atualizar X e y com os dados reduzidos
+X = X_pca_df.drop(columns=['Heart_Disease'])
+y = X_pca_df['Heart_Disease']
+
 # Divisão em treino e teste
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+# Aplicar SMOTE apenas nos dados de treino
+smote = SMOTE(random_state=42)
+X_train_smote, y_train_smote = smote.fit_resample(X_train, y_train)
+
+# Verificar o balanceamento após o SMOTE
+print("Distribuição antes do SMOTE:", y_train.value_counts())
+print("Distribuição após o SMOTE:", pd.Series(y_train_smote).value_counts())
 
 # ----------------- Experimento com k-NN -----------------
 # Modelo: k-NN
 knn_clf = KNeighborsClassifier(n_neighbors=5)  # Utilizando 5 vizinhos como padrão
 
 # Treinando o modelo
-knn_clf.fit(X_train, y_train)
+knn_clf.fit(X_train_smote, y_train_smote)
 
 # Avaliação
 y_pred_knn = knn_clf.predict(X_test)
-classification_rep_knn = classification_report(y_test, y_pred_knn, zero_division=1)
-accuracy_knn = accuracy_score(y_test, y_pred_knn)
 
-# Resultados
-print("\nResultados do k-NN:")
-print(classification_rep_knn)
-print(f"Acurácia: {accuracy_knn:.2f}")
+# Matriz de Confusão
+conf_matrix = confusion_matrix(y_test, y_pred_knn)
+plt.figure(figsize=(6, 4))
+sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=['No Disease', 'Disease'],
+            yticklabels=['No Disease', 'Disease'])
+plt.title("Matriz de Confusão")
+plt.xlabel("Previsto")
+plt.ylabel("Real")
+plt.show()
+
+# Outras métricas
+classification_rep = classification_report(y_test, y_pred_knn)
+accuracy = accuracy_score(y_test, y_pred_knn)
+recall_macro = recall_score(y_test, y_pred_knn, average='macro')
+recall_micro = recall_score(y_test, y_pred_knn, average='micro')
+precision_macro = precision_score(y_test, y_pred_knn, average='macro')
+precision_micro = precision_score(y_test, y_pred_knn, average='micro')
+f1_macro = f1_score(y_test, y_pred_knn, average='macro')
+f1_micro = f1_score(y_test, y_pred_knn, average='micro')
+
 
 # Estimando a importância das características para k-NN usando Permutation Importance
 perm_importance_knn = permutation_importance(knn_clf, X_test, y_test, n_repeats=10, random_state=42)
@@ -110,3 +183,15 @@ plt.xlabel("Relevância na Previsão de Doença Cardíaca", fontsize=14)
 plt.ylabel("Atributos", fontsize=14)
 plt.tight_layout()
 plt.show()
+
+
+# Resultados
+print("\nRelatório de Classificação:")
+print(classification_rep)
+print(f"Accuracy: {accuracy:.2f}")
+print(f"Recall (Macro): {recall_macro:.2f}")
+print(f"Recall (Micro): {recall_micro:.2f}")
+print(f"Precisão (Macro): {precision_macro:.2f}")
+print(f"Precisão (Micro): {precision_micro:.2f}")
+print(f"F1-Score (Macro): {f1_macro:.2f}")
+print(f"F1-Score (Micro): {f1_micro:.2f}")

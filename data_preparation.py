@@ -188,15 +188,15 @@ def data_reduction(data):
 
 
 # Testing
-file_path = r'C:\Users\Tiago Afonseca\OneDrive - ISCTE-IUL\Documents\1º Year MEI\1º Semestre\IAA\projeto\CVD_cleaned_tester.csv'   # Prefixe o caminho com um r para indicar uma ‘string’ "raw" (crua), que ignora caracteres de escape
-data = pd.read_csv(file_path)
+#file_path = r'C:\Users\Tiago Afonseca\OneDrive - ISCTE-IUL\Documents\1º Year MEI\1º Semestre\IAA\projeto\CVD_cleaned_tester.csv'   # Prefixe o caminho com um r para indicar uma ‘string’ "raw" (crua), que ignora caracteres de escape
+#data = pd.read_csv(file_path)
 #creating_table(data)  # Tabela Inicial
 
-missing_values, style_map = randomly_remove_and_substitute_values(data, 10, "valor medio")  # Estratégia 1: dummy; Estratégia 2: valor medio
+#missing_values, style_map = randomly_remove_and_substitute_values(data, 10, "valor medio")  # Estratégia 1: dummy; Estratégia 2: valor medio
 #creating_table_with_style(missing_values, style_map)
-normalized = data_normalization(data)
-discret = data_discretization(data)
-reduction = data_reduction(data)    
-creating_table(reduction)
+#normalized = data_normalization(data)
+#discret = data_discretization(data)
+#reduction = data_reduction(data)
+#creating_table(reduction)
 
 

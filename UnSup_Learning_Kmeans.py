@@ -1,12 +1,13 @@
 import pandas as pd
 import numpy as np
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 import re
 from sklearn.decomposition import PCA
+import data_preparation
 
 # Carregar os dados
 file_path = r'C:\Users\Tiago Afonseca\OneDrive - ISCTE-IUL\Documents\1º Year MEI\1º Semestre\IAA\projeto\CVD_cleaned_tester.csv'
@@ -68,15 +69,58 @@ data_normalized[categorical_cols] = data_with_missing_10[categorical_cols]
 data_encoded = pd.get_dummies(data_normalized, columns=categorical_cols, drop_first=True)
 
 # Ajustando X e y
-target_col = [col for col in data_encoded.columns if 'Heart' in col][0]  # Detectando a coluna-alvo
+target_col = [col for col in data_encoded.columns if 'Heart_Disease' in col][0]  # Detectando a coluna-alvo
 X = data_encoded.drop(columns=[target_col])
 y = data_encoded[target_col]
 
-# Codificação de variáveis categóricas
-data_encoded = pd.get_dummies(data_normalized, columns=categorical_cols, drop_first=True)
-
 # Dados normalizados e preparados para k-Means
 X_unsupervised = data_encoded
+
+# -------------------- Redução de Dimensionalidade com PCA --------------------
+n_atributos = 4  # Número de componentes principais
+pca = PCA(n_components=n_atributos)
+
+# Aplicar PCA nos dados normalizados (sem a variável target)
+X_pca = pca.fit_transform(data_encoded.drop(columns=[target_col]))
+
+# Criar um DataFrame para as componentes principais
+X_pca_df = pd.DataFrame(X_pca, columns=[f"PCA{i+1}" for i in range(n_atributos)])
+X_pca_df['Heart_Disease'] = data_encoded[target_col].values
+
+data_preparation.creating_table(X_pca_df)  # Visualizar tabela reduzida
+
+# Verificar a explicação de variância acumulada
+explained_variance = np.cumsum(pca.explained_variance_ratio_)
+print(f"\nExplicação de variância acumulada para {n_atributos} componentes principais: {explained_variance[-1]:.2f}")
+
+# -------------------- Adicionando a Análise de Contribuições de cada Atributo(Loadings) --------------------
+# Obter os loadings do PCA
+loadings = pca.components_
+
+# Criar um DataFrame para relacionar os loadings às variáveis originais
+loading_matrix = pd.DataFrame(loadings, columns=X.columns, index=[f"PCA{i+1}" for i in range(n_atributos)])
+#data_preparation.creating_table(loading_matrix)
+
+# Exibir a matriz de loadings completa
+print("\nMatriz de Loadings (Contribuições):")
+print(loading_matrix)
+
+# Visualizar as contribuições de variáveis para cada componente principal
+for i in range(n_atributos):  # Iterar sobre todas as PCAs
+    plt.figure(figsize=(11, 7))
+    loading_matrix.iloc[i].plot(kind='barh', color='mediumpurple', alpha=0.7)
+    plt.title(f"Contribuições das Variáveis para o {loading_matrix.index[i]}", fontsize=16)
+    plt.xlabel("Variáveis Originais", fontsize=14)
+    plt.ylabel("Contribuição", fontsize=14)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.gca().invert_yaxis()
+    plt.show()
+
+# Substituir X_unsupervised pelos dados reduzidos do PCA (sem a variável target)
+X_unsupervised = X_pca_df.drop(columns=['Heart_Disease'])
+y_target = X_pca_df['Heart_Disease']
+
 
 # Determinando o número ideal de ‘clusters’ (método do cotovelo)
 inertia = []
@@ -101,6 +145,7 @@ plt.tight_layout()
 plt.show()
 
 # Melhor número de ‘clusters’ baseado no método da silhueta
+print("\nMétricas de Avalição:")
 best_k = cluster_range[silhouette_scores.index(max(silhouette_scores))]
 print(f"Melhor número de clusters (baseado na Silhueta): {best_k}")
 
@@ -108,7 +153,20 @@ print(f"Melhor número de clusters (baseado na Silhueta): {best_k}")
 kmeans_final = KMeans(n_clusters=best_k, random_state=42)
 kmeans_labels = kmeans_final.fit_predict(X_unsupervised)
 
-# --------------------- Análise dos Atributos Mais Relevantes ---------------------
+# --------------------- Métricas de Avaliação ---------------------
+# Coeficiente de Silhueta
+silhouette_avg = silhouette_score(X_unsupervised, kmeans_labels)
+print(f"Coeficiente de Silhueta: {silhouette_avg:.2f}")
+
+# Índice de Calinski-Harabasz
+ch_score = calinski_harabasz_score(X_unsupervised, kmeans_labels)
+print(f"Índice de Calinski-Harabasz: {ch_score:.2f}")
+
+# Índice de Davies-Bouldin
+db_score = davies_bouldin_score(X_unsupervised, kmeans_labels)
+print(f"Índice de Davies-Bouldin: {db_score:.2f}")
+
+# --------------------- Análise dos PCA's ---------------------
 # Extraindo os centroides dos ‘clusters’
 centroids = pd.DataFrame(kmeans_final.cluster_centers_, columns=X_unsupervised.columns)
 
@@ -117,11 +175,12 @@ centroid_differences = centroids.std().sort_values(ascending=False)
 
 # Plotando os atributos mais relevantes com base na variação dos centroides
 plt.figure(figsize=(12, 8))
-centroid_differences.head(10).plot(kind='barh', color='salmon')
+centroid_differences.head(20).plot(kind='barh', color='mediumpurple')
 plt.title("Importância dos Atributos - Decision Tree", fontsize=16)
-plt.xlabel("Variação entre os Clusters", fontsize=14)
+plt.xlabel("Relevância na Previsão de Doença Cardíaca", fontsize=14)
 plt.ylabel("Atributos", fontsize=14)
 plt.tight_layout()
+plt.gca().invert_yaxis()  # Inverte o eixo Y para o maior atributo aparecer no topo
 plt.show()
 
 # --------------------- Visualização dos ‘Clusters’ ---------------------
@@ -132,10 +191,9 @@ X_2d = pca.fit_transform(X_unsupervised)
 # Gráfico de dispersão dos ‘clusters’
 plt.figure(figsize=(10, 6))
 scatter = plt.scatter(X_2d[:, 0], X_2d[:, 1], c=kmeans_labels, cmap='viridis', s=50, alpha=0.7)
-plt.title("Clusters do k-Means (Reduzido para 2D)", fontsize=16)
+plt.title("Clusters k-Means (Reduzido para 2D)", fontsize=16)
 plt.xlabel("Componente Principal 1", fontsize=14)
 plt.ylabel("Componente Principal 2", fontsize=14)
 plt.colorbar(scatter, label="Heart Disease (0=No, 1=Yes)")
 plt.tight_layout()
-plt.gca().invert_yaxis()  # Inverte o eixo Y para o maior atributo aparecer no topo
 plt.show()
