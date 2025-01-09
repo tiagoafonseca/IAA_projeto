@@ -7,12 +7,14 @@ from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 import re
 from sklearn.decomposition import PCA
-import data_preparation
+import tables_class
+from imblearn.over_sampling import SMOTE
 
 # Carregar os dados
 file_path = r'C:\Users\Tiago Afonseca\OneDrive - ISCTE-IUL\Documents\1º Year MEI\1º Semestre\IAA\projeto\CVD_cleaned_tester.csv'
 data = pd.read_csv(file_path)
 
+# --------------------- Preparação dos Dados ---------------------------
 # Inspeção inicial
 numeric_cols = data.select_dtypes(include=['float64', 'int64']).columns
 categorical_cols = data.select_dtypes(include=['object']).columns
@@ -59,12 +61,13 @@ else:
     # Estratégia de Remoção: Remoção da linha completa de conter um null
     data_with_missing_10 = data_with_missing_10.dropna()
 
-
+# --------------------- Normalização dos Dados ------------------------
 # Normalização
 scaler = StandardScaler()
 data_normalized = pd.DataFrame(scaler.fit_transform(data_with_missing_10[numeric_cols]), columns=numeric_cols)
 data_normalized[categorical_cols] = data_with_missing_10[categorical_cols]
 
+# --------------------- Discretização dos Dados ------------------------
 # Codificação de variáveis categóricas
 data_encoded = pd.get_dummies(data_normalized, columns=categorical_cols, drop_first=True)
 
@@ -73,21 +76,31 @@ target_col = [col for col in data_encoded.columns if 'Heart_Disease' in col][0] 
 X = data_encoded.drop(columns=[target_col])
 y = data_encoded[target_col]
 
-# Dados normalizados e preparados para k-Means
-X_unsupervised = data_encoded
+# ---------------------- Aplicar SMOTE nos dados ----------------------
+print("\nAntes do SMOTE:")
+print(y.value_counts())
+
+smote = SMOTE(random_state=42)
+X_smote, y_smote = smote.fit_resample(X, y)
+
+print("\nApós o SMOTE:")
+print(pd.Series(y_smote).value_counts())
 
 # -------------------- Redução de Dimensionalidade com PCA --------------------
-n_atributos = 4  # Número de componentes principais
+n_atributos = 3  # Número de componentes principais
 pca = PCA(n_components=n_atributos)
 
 # Aplicar PCA nos dados normalizados (sem a variável target)
-X_pca = pca.fit_transform(data_encoded.drop(columns=[target_col]))
+X_pca = pca.fit_transform(X_smote)
 
 # Criar um DataFrame para as componentes principais
 X_pca_df = pd.DataFrame(X_pca, columns=[f"PCA{i+1}" for i in range(n_atributos)])
-X_pca_df['Heart_Disease'] = data_encoded[target_col].values
+X_pca_df['Heart_Disease'] = y_smote
 
-data_preparation.creating_table(X_pca_df)  # Visualizar tabela reduzida
+# Substituir X pelos dados reduzidos
+X_unsupervised = X_pca_df.drop(columns=['Heart_Disease'])
+
+tables_class.creating_table(X_pca_df)  # Visualizar tabela reduzida
 
 # Verificar a explicação de variância acumulada
 explained_variance = np.cumsum(pca.explained_variance_ratio_)
@@ -99,7 +112,7 @@ loadings = pca.components_
 
 # Criar um DataFrame para relacionar os loadings às variáveis originais
 loading_matrix = pd.DataFrame(loadings, columns=X.columns, index=[f"PCA{i+1}" for i in range(n_atributos)])
-#data_preparation.creating_table(loading_matrix)
+# tables_class.creating_table(loading_matrix)
 
 # Exibir a matriz de loadings completa
 print("\nMatriz de Loadings (Contribuições):")

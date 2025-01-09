@@ -1,8 +1,8 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import (classification_report, accuracy_score, confusion_matrix,
-                             precision_score, recall_score, f1_score)
+                             precision_score, recall_score, f1_score, roc_auc_score, roc_curve, precision_recall_curve, auc)
 from sklearn.decomposition import PCA
 import seaborn as sns
 from sklearn.neighbors import KNeighborsClassifier
@@ -11,13 +11,15 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.inspection import permutation_importance
 import matplotlib.pyplot as plt
 import re
-import data_preparation
+import tables_class
 from imblearn.over_sampling import SMOTE
+from imblearn.under_sampling import RandomUnderSampler
 
 # Carregar os dados
 file_path = r'C:\Users\Tiago Afonseca\OneDrive - ISCTE-IUL\Documents\1º Year MEI\1º Semestre\IAA\projeto\CVD_cleaned_tester.csv'
 data = pd.read_csv(file_path)
 
+# --------------------- Preparação dos Dados ---------------------------
 # Inspeção inicial
 numeric_cols = data.select_dtypes(include=['float64', 'int64']).columns
 categorical_cols = data.select_dtypes(include=['object']).columns
@@ -25,8 +27,7 @@ categorical_cols = data.select_dtypes(include=['object']).columns
 # Remoção de Duplicados
 data = data.drop_duplicates()
 
-# Introduzir valores ausentes artificiais (10% ou 20%)
-# Solicitar a percentagem de valores omissos
+# Introduzir valores ausentes artificiais (10% ou 20%): Solicitar a percentagem de valores omissos
 while True:
     percentagem = input("Introduza a percentagem de valores omissos (10% ou 20%): ").strip()
     percentagem = re.sub(r"[^\w\s]", "", percentagem)  # Remove caracteres não numéricos
@@ -64,12 +65,13 @@ else:
     # Estratégia de Remoção: Remoção da linha completa de conter um null
     data_with_missing_10 = data_with_missing_10.dropna()
 
-
+# --------------------- Normalização dos Dados ------------------------
 # Normalização
 scaler = StandardScaler()
 data_normalized = pd.DataFrame(scaler.fit_transform(data_with_missing_10[numeric_cols]), columns=numeric_cols)
 data_normalized[categorical_cols] = data_with_missing_10[categorical_cols]
 
+# --------------------- Discretização dos Dados ------------------------
 # Codificação de variáveis categóricas
 data_encoded = pd.get_dummies(data_normalized, columns=categorical_cols, drop_first=True)
 
@@ -81,7 +83,7 @@ y = data_encoded[target_col]
 
 # -------------------- Redução de Dimensionalidade com PCA --------------------
 # Configurando o PCA para reduzir para N componentes principais
-n_atributos = 7
+n_atributos = 10
 pca = PCA(n_components=n_atributos)
 
 # Aplicando o PCA aos dados normalizados (X)
@@ -91,13 +93,13 @@ X_pca = pca.fit_transform(data_encoded.drop(columns=[target_col]))
 X_pca_df = pd.DataFrame(X_pca, columns=[f"PCA{i+1}" for i in range(n_atributos)])
 X_pca_df['Heart_Disease'] = data_encoded[target_col]  # Adicionando a variável alvo
 
-data_preparation.creating_table(X_pca_df)  # Visualizar tabela reduzida
+tables_class.creating_table(X_pca_df)  # Visualizar tabela reduzida
 
 # Exibir a explicação da variância acumulada
 explained_variance = np.cumsum(pca.explained_variance_ratio_)
 print(f"\nExplicação de variância acumulada para {n_atributos} componentes:", explained_variance[-1])
 
-# -------------------- Adicionando a Análise de Contribuições de cada Atributo(Loadings) --------------------
+# -------------------- Adicionando a Análise de Contribuições de cada Atributo (Loadings) --------------------
 # Obter os loadings do PCA
 loadings = pca.components_
 
@@ -127,7 +129,7 @@ y = X_pca_df['Heart_Disease']
 # Divisão em treino e teste
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-# Aplicar SMOTE apenas nos dados de treino
+# ---------------------- Aplicar SMOTE apenas nos dados de treino ----------------------
 smote = SMOTE(random_state=42)
 X_train_smote, y_train_smote = smote.fit_resample(X_train, y_train)
 
@@ -135,15 +137,46 @@ X_train_smote, y_train_smote = smote.fit_resample(X_train, y_train)
 print("Distribuição antes do SMOTE:", y_train.value_counts())
 print("Distribuição após o SMOTE:", pd.Series(y_train_smote).value_counts())
 
-# ----------------- Experimento com k-NN -----------------
+# ---------------------- Aplicar Random UnderSampling apenas nos dados de treino ----------------------
+"""rus = RandomUnderSampler(random_state=42)
+X_train_smote, y_train_smote = rus.fit_resample(X_train, y_train)
+
+# Verificar o balanceamento após o undersampling
+print("Distribuição antes do undersampling:", y_train.value_counts())
+print("Distribuição após o undersampling:", pd.Series(y_train_smote).value_counts()) """
+
+# ------------------------- Ajustar Hiperparâmetros --------------------------------
+# Definir os hiperparâmetros a serem avaliados
+param_grid = {
+    'n_neighbors': [3, 5, 7, 9],  # Número de vizinhos
+    'weights': ['uniform', 'distance'],  # Peso dos vizinhos
+    'metric': ['euclidean', 'manhattan', 'minkowski']  # Métricas de distância
+}
+
 # Modelo: k-NN
-knn_clf = KNeighborsClassifier(n_neighbors=5)  # Utilizando 5 vizinhos como padrão
+knn_clf = KNeighborsClassifier()  # random_state=42 ???
 
-# Treinando o modelo
-knn_clf.fit(X_train_smote, y_train_smote)
+# Configurar o GridSearchCV
+grid_search = GridSearchCV(
+    estimator=knn_clf,
+    param_grid=param_grid,
+    scoring='f1_macro',  # Métrica para otimizar
+    cv=5,  # Número de folds na validação cruzada
+    verbose=1,  # Mostrar progresso reduzido
+    n_jobs=-1  # Usar todos os núcleos disponíveis
+)
 
-# Avaliação
-y_pred_knn = knn_clf.predict(X_test)
+# Ajustar o GridSearch nos dados de treino
+grid_search.fit(X_train_smote, y_train_smote)
+
+# Exibir os melhores parâmetros encontrados
+print("Melhores hiperparâmetros:", grid_search.best_params_)
+
+# Melhor modelo ajustado
+best_knn_model = grid_search.best_estimator_
+
+# Avaliação com o melhor modelo nos dados de teste
+y_pred_knn = best_knn_model.predict(X_test)
 
 # Matriz de Confusão
 conf_matrix = confusion_matrix(y_test, y_pred_knn)
@@ -153,6 +186,38 @@ sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=['No Dis
 plt.title("Matriz de Confusão")
 plt.xlabel("Previsto")
 plt.ylabel("Real")
+plt.show()
+
+# Calcular a curva ROC e AUC
+y_probs = best_knn_model.predict_proba(X_test)[:, 1]  # Probabilidades da classe "Disease"
+fpr, tpr, thresholds = roc_curve(y_test, y_probs)
+roc_auc = roc_auc_score(y_test, y_probs)
+
+# Plotar a curva ROC
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC Curve (AUC = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')  # Linha diagonal
+plt.title("Curva ROC", fontsize=16)
+plt.xlabel("Taxa de Falsos Positivos (FPR)", fontsize=12)
+plt.ylabel("Taxa de Verdadeiros Positivos (TPR)", fontsize=12)
+plt.legend(loc="lower right", fontsize=12)
+plt.grid(alpha=0.5)
+plt.tight_layout()
+plt.show()
+
+# Calcular a curva Precision-Recall
+precision, recall, pr_thresholds = precision_recall_curve(y_test, y_probs)
+pr_auc = auc(recall, precision)
+
+# Plotar a curva Precision-Recall
+plt.figure(figsize=(8, 6))
+plt.plot(recall, precision, color='blue', lw=2, label=f'Precision-Recall Curve (AUC = {pr_auc:.2f})')
+plt.title("Curva Precision-Recall", fontsize=16)
+plt.xlabel("Recall", fontsize=12)
+plt.ylabel("Precision", fontsize=12)
+plt.legend(loc="lower left", fontsize=12)
+plt.grid(alpha=0.5)
+plt.tight_layout()
 plt.show()
 
 # Outras métricas
@@ -165,9 +230,8 @@ precision_micro = precision_score(y_test, y_pred_knn, average='micro')
 f1_macro = f1_score(y_test, y_pred_knn, average='macro')
 f1_micro = f1_score(y_test, y_pred_knn, average='micro')
 
-
 # Estimando a importância das características para k-NN usando Permutation Importance
-perm_importance_knn = permutation_importance(knn_clf, X_test, y_test, n_repeats=10, random_state=42)
+perm_importance_knn = permutation_importance(best_knn_model, X_test, y_test, n_repeats=10, random_state=42)
 
 # Organizando os dados para visualização
 feature_importance_knn = pd.Series(perm_importance_knn.importances_mean, index=X.columns)
@@ -184,10 +248,10 @@ plt.ylabel("Atributos", fontsize=14)
 plt.tight_layout()
 plt.show()
 
-
-# Resultados
+# --------------------- Métricas de Avaliação ---------------------
 print("\nRelatório de Classificação:")
 print(classification_rep)
+print("\nMétricas:")
 print(f"Accuracy: {accuracy:.2f}")
 print(f"Recall (Macro): {recall_macro:.2f}")
 print(f"Recall (Micro): {recall_micro:.2f}")
@@ -195,3 +259,5 @@ print(f"Precisão (Macro): {precision_macro:.2f}")
 print(f"Precisão (Micro): {precision_micro:.2f}")
 print(f"F1-Score (Macro): {f1_macro:.2f}")
 print(f"F1-Score (Micro): {f1_micro:.2f}")
+print(f"ROC-AUC Score: {roc_auc:.2f}")
+print(f"Precision-Recall AUC Score: {pr_auc:.2f}")

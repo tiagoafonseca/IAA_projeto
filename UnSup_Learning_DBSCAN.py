@@ -9,13 +9,15 @@ from sklearn.preprocessing import StandardScaler
 import re
 from sklearn.decomposition import PCA
 import matplotlib
-import data_preparation
+import tables_class
+from imblearn.over_sampling import SMOTE
 
 
 # Carregar os dados
 file_path = r'C:\Users\Tiago Afonseca\OneDrive - ISCTE-IUL\Documents\1º Year MEI\1º Semestre\IAA\projeto\CVD_cleaned_tester.csv'
 data = pd.read_csv(file_path)
 
+# --------------------- Preparação dos Dados ---------------------------
 # Inspeção inicial
 numeric_cols = data.select_dtypes(include=['float64', 'int64']).columns
 categorical_cols = data.select_dtypes(include=['object']).columns
@@ -56,11 +58,13 @@ if int(estrategia) == 1:
 else:
     data_with_missing_10 = data_with_missing_10.dropna()
 
+# --------------------- Normalização dos Dados ------------------------
 # Normalização
 scaler = StandardScaler()
 data_normalized = pd.DataFrame(scaler.fit_transform(data_with_missing_10[numeric_cols]), columns=numeric_cols)
 data_normalized[categorical_cols] = data_with_missing_10[categorical_cols]
 
+# --------------------- Discretização dos Dados ------------------------
 # Codificação de variáveis categóricas
 data_encoded = pd.get_dummies(data_normalized, columns=categorical_cols, drop_first=True)
 
@@ -69,28 +73,31 @@ target_col = [col for col in data_encoded.columns if 'Heart_Disease' in col][0]
 X = data_encoded.drop(columns=[target_col])
 y = data_encoded[target_col]
 
-# Adicione aqui para verificar se y contém os valores esperados:
-print("\nResumo da variável alvo (Heart Disease):")
+# ---------------------- Aplicar SMOTE nos dados ----------------------
+print("\nAntes do SMOTE:")
 print(y.value_counts())
 
-X_unsupervised = data_encoded
+smote = SMOTE(random_state=42)
+X_smote, y_smote = smote.fit_resample(X, y)
+
+print("\nApós o SMOTE:")
+print(pd.Series(y_smote).value_counts())
 
 # -------------------- Redução de Dimensionalidade com PCA --------------------
-n_atributos = 4  # Número de componentes principais
+n_atributos = 7  # Número de componentes principais
 pca = PCA(n_components=n_atributos)
 
 # Aplicar PCA nos dados normalizados (sem a variável target)
-X_pca = pca.fit_transform(data_encoded.drop(columns=[target_col]))
+X_pca = pca.fit_transform(X_smote)
 
 # Criar um DataFrame para as componentes principais
 X_pca_df = pd.DataFrame(X_pca, columns=[f"PCA{i+1}" for i in range(n_atributos)])
-X_pca_df['Heart_Disease'] = data_encoded[target_col].values
+X_pca_df['Heart_Disease'] = y_smote
 
-data_preparation.creating_table(X_pca_df)  # Visualizar tabela reduzida
+# Substituir X pelos dados reduzidos
+X_unsupervised = X_pca_df.drop(columns=['Heart_Disease'])
 
-# Verificar a explicação de variância acumulada
-explained_variance = np.cumsum(pca.explained_variance_ratio_)
-print(f"\nExplicação de variância acumulada para {n_atributos} componentes principais: {explained_variance[-1]:.2f}")
+tables_class.creating_table(X_unsupervised)  # Visualizar tabela reduzida
 
 # -------------------- Adicionando a Análise de Contribuições de cada Atributo(Loadings) --------------------
 # Obter os loadings do PCA
@@ -99,10 +106,6 @@ loadings = pca.components_
 # Criar um DataFrame para relacionar os loadings às variáveis originais
 loading_matrix = pd.DataFrame(loadings, columns=X.columns, index=[f"PCA{i+1}" for i in range(n_atributos)])
 #data_preparation.creating_table(loading_matrix)
-
-# Exibir a matriz de loadings completa
-print("\nMatriz de Loadings (Contribuições):")
-print(loading_matrix)
 
 # Visualizar as contribuições de variáveis para cada componente principal
 for i in range(n_atributos):  # Iterar sobre todas as PCAs
@@ -120,51 +123,48 @@ for i in range(n_atributos):  # Iterar sobre todas as PCAs
 X_unsupervised = X_pca_df.drop(columns=['Heart_Disease'])
 y_target = X_pca_df['Heart_Disease']
 
-# --------------------- Determinar o Melhor eps ---------------------
-neighbors = NearestNeighbors(n_neighbors=2)
-neighbors_fit = neighbors.fit(X_unsupervised)
-distances, indices = neighbors_fit.kneighbors(X_unsupervised)
+# --------------------- GridSearch para DBSCAN ---------------------
+from itertools import product  # Para gerar combinações de parâmetros
 
-# Ordenar as distâncias
-distances = np.sort(distances[:, 1], axis=0)
+# Configuração de ranges para eps e min_samples
+eps_values = np.linspace(0.1, 5.0, 20)  # Intervalo de eps
+min_samples_values = range(2, 10)       # Intervalo de min_samples
 
-# Calcular as diferenças para determinar o "cotovelo"
-differences = np.diff(distances)
-diff_diff = np.diff(differences)
+# Inicializar variáveis para armazenar os melhores resultados
+best_eps = None
+best_min_samples = None
+best_silhouette = -1
+best_labels = None
 
-# Encontrar o índice do ponto de maior curvatura (cotovelo)
-elbow_index = np.argmax(diff_diff) + 1
+# Loop para encontrar a melhor combinação de eps e min_samples
+for eps, min_samples in product(eps_values, min_samples_values):
+    dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+    labels = dbscan.fit_predict(X_unsupervised)
 
-# Determinar o melhor valor de eps
-eps = max(distances[elbow_index], 0.4)  # Usar um limite mínimo de 0.4 (ou outro valor adequado)
-print(f"Melhor valor de eps encontrado: {eps}")
+    # Avaliar as métricas
+    if len(set(labels)) > 1:  # Garantir que há mais de um cluster
+        sil_score = silhouette_score(X_unsupervised, labels)
+        if sil_score > best_silhouette:  # Atualizar os melhores parâmetros
+            best_eps = eps
+            best_min_samples = min_samples
+            best_silhouette = sil_score
+            best_labels = labels
 
-# --------------------- Aplicando DBSCAN ---------------------
-min_samples = 2  # Ajustar este valor conforme necessário
-dbscan = DBSCAN(eps=eps, min_samples=min_samples)
-dbscan_labels = dbscan.fit_predict(X_unsupervised)
+# Exibir os melhores resultados
+print(f"\nMelhor valor de eps: {best_eps}")
+print(f"Melhor valor de min_samples: {best_min_samples}")
+print(f"Melhor Coeficiente de Silhueta: {best_silhouette:.2f}")
 
-# Verificando o número de clusters encontrados
-n_clusters = len(set(dbscan_labels)) - (1 if -1 in dbscan_labels else 0)
-n_outliers = list(dbscan_labels).count(-1)
+# Aplicar o DBSCAN com os melhores parâmetros
+dbscan = DBSCAN(eps=best_eps, min_samples=best_min_samples)
+final_labels = dbscan.fit_predict(X_unsupervised)
 
-print(f"Número de clusters encontrados: {n_clusters}")
+# --------------------- Visualização dos Resultados ---------------------
+n_clusters = len(set(final_labels)) - (1 if -1 in final_labels else 0)
+n_outliers = list(final_labels).count(-1)
+
+print(f"\nNúmero de clusters: {n_clusters}")
 print(f"Número de outliers: {n_outliers}")
-
-# Associar os clusters à variável-alvo
-data_with_clusters = pd.DataFrame(X_unsupervised, columns=X_unsupervised.columns)
-data_with_clusters['Cluster'] = dbscan_labels
-data_with_clusters['Heart Disease'] = y
-
-# Proporção de Heart Disease em cada cluster
-cluster_analysis = data_with_clusters.groupby('Cluster')['Heart Disease'].mean()
-print("\nProporção de Heart Disease por Cluster:")
-print(cluster_analysis)
-
-# Análise descritiva para cada cluster
-cluster_summary = data_with_clusters.groupby('Cluster').mean()
-print("\nResumo Estatístico por Cluster:")
-print(cluster_summary)
 
 # --------------------- Visualização dos PCA's---------------------
 # Visualizar todas as contribuições dos atributos em todos os PCA's
@@ -194,7 +194,7 @@ X_2d = pca.fit_transform(X_unsupervised)
 cluster_labels = {-1: "Outliers", 0: "No Disease", 1: "Disease"}
 
 # Adicionar cores personalizadas para cada cluster
-colors = ["red" if label == -1 else "blue" if label == 0 else "green" for label in dbscan_labels]
+colors = ["red" if label == -1 else "blue" if label == 0 else "green" for label in final_labels]
 
 plt.figure(figsize=(10, 6))
 scatter = plt.scatter(X_2d[:, 0], X_2d[:, 1], c=colors, alpha=0.6, edgecolor="k", s=50)
@@ -213,26 +213,21 @@ plt.tight_layout()
 plt.show()
 
 # --------------------- Métricas de Avaliação ---------------------
+print("\nMétricas de Avaliação")
 # Coeficiente de Silhueta
-silhouette_avg = silhouette_score(X_unsupervised, dbscan_labels)
+silhouette_avg = silhouette_score(X_unsupervised, final_labels)
 print(f"Coeficiente de Silhueta: {silhouette_avg:.2f}")
 
 # Índice de Calinski-Harabasz
-ch_score = calinski_harabasz_score(X_unsupervised, dbscan_labels)
+ch_score = calinski_harabasz_score(X_unsupervised, final_labels)
 print(f"Índice de Calinski-Harabasz: {ch_score:.2f}")
 
 # Índice de Davies-Bouldin
-db_score = davies_bouldin_score(X_unsupervised, dbscan_labels)
+db_score = davies_bouldin_score(X_unsupervised, final_labels)
 print(f"Índice de Davies-Bouldin: {db_score:.2f}")
 
 # --------------------- Resumo dos Clusters ---------------------
 # Contagem de pontos por cluster
-cluster_counts = pd.Series(dbscan_labels).value_counts()
+cluster_counts = pd.Series(final_labels).value_counts()
 print("\nDistribuição dos Clusters:")
 print(cluster_counts)
-
-# Resumo da variável alvo (se aplicável)
-if "Heart_Disease" in data_with_clusters.columns:
-    cluster_analysis = data_with_clusters.groupby(dbscan_labels)['Heart_Disease'].mean()
-    print("\nProporção de 'Heart Disease' por Cluster:")
-    print(cluster_analysis)
