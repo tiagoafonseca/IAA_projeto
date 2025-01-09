@@ -44,7 +44,7 @@ for col in data_with_missing_10.columns:
 # Tratamento de valores omissos
 while True:
     estrategia = input("Introduza a estratégia de tratamento de valores omissos! "
-                       "Estratégia 1 - Média/Moda; Estratégia 2 - Remoção da linha com valor omisso: ").strip()
+                       "\n'1' para Média/Moda ou '2' para Remoção da linha: ").strip()
     if estrategia in {"1", "2"}:  # Verifica se a entrada é válida
         break
     else:
